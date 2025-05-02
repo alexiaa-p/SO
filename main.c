@@ -1,90 +1,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include "treasure_manager.h"
+#include "treasure_hunt.h"
 
-Comanda parse(int argc, char **argv) {
-    if (argc >= 2) {
-        if (!strcmp(argv[1], "--add"))
-            return ADD;
-        if (!strcmp(argv[1], "--list"))
-            return LIST;
-        if (!strcmp(argv[1], "--view"))
-            return VIEW;
-        if (!strcmp(argv[1], "--remove"))
-            if (argc == 4)
-                return REMOVE_TREASURE;
-            else
-                return REMOVE_HUNT;
-    }
-    return NECUNOSCUT;
-}
-
-int main(int argc, char **argv) {
-    Comanda cmd = parse(argc, argv);
-
-    switch (cmd) {
-        case ADD: {
-            int hunt_id = atoi(argv[2]);
-            Treasure t;
-            
-            printf("\nScrieti detaliile treasure-ului:\n");
-            printf("ID: ");
-            scanf("%d", &t.ID);
-
-            printf("Username: ");
-            scanf("%s", t.username); 
-
-            printf("Latitudine: ");
-            scanf("%f", &t.coordinates.latitude);
-
-            printf("Longitudine: ");
-            scanf("%f", &t.coordinates.longitude);
-
-            printf("Indiciu: ");
-            scanf("%s", t.clue);
-
-            printf("Valoare: ");
-            scanf("%d", &t.value);
-
-            add_tr(hunt_id, t);
-            break;
-        }
-
-        case LIST: {
-            int hunt_id = atoi(argv[2]);
-            printf("\nHunt-ul cu ID-ul %d este:\n", hunt_id);
-            list(hunt_id);
-            break;
-        }
-
-        case VIEW: {
-            int hunt_id = atoi(argv[2]);
-            int treasure_id = atoi(argv[3]);  
-            view(hunt_id, treasure_id);
-            break;
-        }
-
-        case REMOVE_TREASURE: {
-            int hunt_id = atoi(argv[2]);
-            int id = atoi(argv[3]);
-            remove_treasure(hunt_id, id);
-            break;
-        }
-
-        case REMOVE_HUNT: {
-            int hunt_id = atoi(argv[2]);
-            remove_hunt(hunt_id);
-            break;
-        }
-
-        default:
-            printf("Comanda necunoscuta\n");
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        fprintf(stderr, "Usage:\n");
+        fprintf(stderr, "  %s --add <hunt_id>\n", argv[0]);
+        fprintf(stderr, "  %s --list <hunt_id>\n", argv[0]);
+        fprintf(stderr, "  %s --view <hunt_id> <treasure_id>\n", argv[0]);
+        fprintf(stderr, "  %s --remove_treasure <hunt_id> <treasure_id>\n", argv[0]);
+        fprintf(stderr, "  %s --remove_hunt <hunt_id>\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
-    logged_hunt_symlinks();
+    const char* optiune = argv[1];
+    const char* hunt_id = argv[2];
+
+    if (strcmp(optiune, "--add") == 0) {
+        add_treasure(hunt_id);
+    } else if (strcmp(optiune, "--list") == 0) {
+        list_treasure(hunt_id);
+    } else if (strcmp(optiune, "--view") == 0 && argc == 4) {
+        int treasure_id = atoi(argv[3]);
+        view_treasure(hunt_id, treasure_id);
+    } else if (strcmp(optiune, "--remove_treasure") == 0 && argc == 4) {
+        int treasure_id = atoi(argv[3]);
+        remove_treasure(hunt_id, treasure_id);
+    } else if (strcmp(optiune, "--remove_hunt") == 0) {
+        remove_hunt(hunt_id);
+    } else {
+        fprintf(stderr, "Invalid option or missing arguments.\n");
+    }
 
     return 0;
 }
