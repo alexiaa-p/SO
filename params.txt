@@ -1,0 +1,3 @@
+list_hunts
+list_treasures 101
+view_treasure 102 56
