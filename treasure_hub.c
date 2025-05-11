@@ -16,6 +16,7 @@ typedef enum
     VIEW_TREASURE,
     STOP_MONITOR,
     EXIT,
+    CALCULATE_SCORE,
     UNKNOWN
   }Command;
 
@@ -33,6 +34,8 @@ Command parse(char *comanda)
     return STOP_MONITOR;
   if((strcmp(comanda, "exit")) == 0)
     return EXIT;
+  if((strcmp(comanda, "calculate_score")) == 0)
+    return CALCULATE_SCORE;
   return UNKNOWN;
 }
 
@@ -88,6 +91,68 @@ void send_signal(pid_t pid, Command cmd)
 	break;
       }
     }
+}
+
+void calculate_scores() {
+  DIR *dir = opendir(".");   //directorul actual
+    if (!dir) {
+        perror("opendir");
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        struct stat st;
+        if (lstat(entry->d_name, &st) == -1)
+            continue;
+
+        if (S_ISLNK(st.st_mode))
+            continue;
+
+        //doar directoare
+        if (!S_ISDIR(st.st_mode))
+            continue;
+
+        int fd[2];
+        if (pipe(fd) == -1) {
+            perror("pipe");
+            continue;
+        }
+
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            close(fd[0]); close(fd[1]);
+            continue;
+        }
+
+        if (pid == 0) {
+            close(fd[0]);
+            dup2(fd[1], STDOUT_FILENO);
+            close(fd[1]);
+
+            execlp("./score_calculator", "score_calculator", entry->d_name, NULL);
+            perror("execlp");
+            exit(1);
+        } else {
+            close(fd[1]);
+            printf("Scores for hunt: %s\n", entry->d_name);
+
+            char buffer[256];
+            ssize_t bytes;
+            while ((bytes = read(fd[0], buffer, sizeof(buffer) - 1)) > 0) {
+                buffer[bytes] = '\0';
+                printf("%s", buffer);
+            }
+            close(fd[0]);
+            waitpid(pid, NULL, 0);
+            printf("\n");
+        }
+    }
+    closedir(dir);
 }
 
 void start_monitor()
@@ -195,6 +260,12 @@ int main()
 	      exit(0);
 	      break;
 	    }
+
+	case CALCULATE_SCORE:
+	  {
+	    calculate_scores();
+	    break;
+	  }
 
 	case UNKNOWN:
 	default:
