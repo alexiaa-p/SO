@@ -2,85 +2,87 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
-#define MAX_USERS 100
-#define MAX_NAME 64
+#include "treasure_hunt.h"
 
-typedef struct {
-    char treasure_id[32];
-    char username[64];
-    float latitude, longitude;
-    char clue[256];
+#define USERNAME 32
+#define CLUE 128
+#define FILENAME "treasure.dat"
+
+/*typedef struct {
+    int id;
+    char username[USERNAME];
+    float latitude;
+    float longitude;
+    char clue[CLUE];
     int value;
-} Treasure;
+    } Treasure;*/
 
-typedef struct {
-    char name[MAX_NAME];
+typedef struct User {
+    char username[USERNAME];
     int score;
-} UserScore;
+    struct User* next;
+} User;
 
-UserScore users[MAX_USERS];
-int user_count = 0;
-
-void add_score(const char *username, int value) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].name, username) == 0) {
-            users[i].score += value;
-            return;
-        }
+User* find_or_add_user(User** head, const char* username) {
+    User* u = *head;
+    while (u) {
+        if (strcmp(u->username, username) == 0) 
+            return u;
+        u = u->next;
     }
-    //utilizator nou
-    strncpy(users[user_count].name, username, MAX_NAME - 1);
-    users[user_count].score = value;
-    user_count++;
+   
+    User* new_node = malloc(sizeof(User));
+    strncpy(new_node->username, username, USERNAME);
+    new_node->score = 0;
+    new_node->next = *head;
+    *head = new_node;
+    return new_node;
 }
 
-void process_file(const char *filepath) {
-    FILE *f = fopen(filepath, "rb");
-    if (!f) {
-        perror("fopen");
-        return;
+void free_scores(User* head) {
+    while (head) {
+        User* tmp = head;
+        head = head->next;
+        free(tmp);
     }
-
-    Treasure t;
-    while (fread(&t, sizeof(Treasure), 1, f) == 1) {
-        add_score(t.username, t.value);
-    }
-
-    fclose(f);
 }
 
-void process_directory(const char *dirpath) {
-    DIR *dir = opendir(dirpath);
-    if (!dir) {
-        perror("opendir");
-        return;
-    }
-
-    struct dirent *entry;
-    char fullpath[512];
-
-    while ((entry = readdir(dir))) {
-        if (entry->d_type == DT_REG) {
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
-            process_file(fullpath);
-        }
-    }
-
-    closedir(dir);
-}
-
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <hunt_directory>\n", argv[0]);
+        perror("eroare argumente");
         return 1;
     }
 
-    process_directory(argv[1]);
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s/%s", argv[1], FILENAME);
 
-    for (int i = 0; i < user_count; i++) {
-        printf("%s: %d\n", users[i].name, users[i].score);
+    int fd = open(filepath, O_RDONLY);
+    if (fd < 0) {
+        perror("eroare fopen");
+        return 1;
     }
 
+    Treasure t;
+    User* score_list = NULL;
+
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {
+        User* user = find_or_add_user(&score_list, t.username);
+        user->score += t.value;
+    }
+
+    close(fd);
+
+    User* curr = score_list;
+    while (curr) {
+        printf("%s: %d\n", curr->username, curr->score);
+        curr = curr->next;
+    }
+
+    free_scores(score_list);
     return 0;
 }
