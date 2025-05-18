@@ -1,6 +1,5 @@
 
-
-#include <stdio.h>
+/*#include <stdio.h>  ///!!!!!!
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -211,18 +210,19 @@ void process_command(char *line)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
+  /*if (argc != 2) {
         fprintf(stderr, "[monitor] lipseste file descriptor din argumente\n");
         exit(1);
-    }
+	}*/
 
-    fd_pipe_out = atoi(argv[1]);
+  //fd_pipe_out = atoi(argv[1]);
 
-    setup_handlers();
+  fd_pipe_out = STDOUT_FILENO;
+/* setup_handlers();
 
     dprintf(fd_pipe_out, "[monitor] Pornit si astept comenzi...\n");
 
-    char line[256];
+   char line[256];
     while (1) {
         if (fgets(line, sizeof(line), stdin) == NULL) {
             // EOF, iesim
@@ -233,8 +233,9 @@ int main(int argc, char **argv)
 
     dprintf(fd_pipe_out, "[monitor] stdin s-a inchis, monitorul se opreste\n");
 
-    return 0;
-}
+    return 0;*/
+}*/
+
 
 
 /*#include <stdio.h>
@@ -626,4 +627,228 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+
+#define TREASURE "treasure.bin"
+
+int monitor_running = 1;
+char g_hunt_name[100];
+int g_treasure_id = -1;
+
+void list_hunts() {
+    dprintf(STDOUT_FILENO, "(MONITOR) Afisam toate hunt-urile si numarul treasure-urilor din fiecare\n");
+
+    DIR* dir = opendir(".");
+    if (!dir) {
+        dprintf(STDOUT_FILENO, "[MONITOR] eroare la opendir\n");
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR &&
+            strcmp(entry->d_name, ".") != 0 &&
+            strcmp(entry->d_name, "..") != 0) {
+
+            char treasure_path[300];
+            sprintf(treasure_path, "%s/%s", entry->d_name, TREASURE);
+
+            struct stat st;
+            if (stat(treasure_path, &st) == 0) {
+                int total = st.st_size / sizeof(int); // simplificat
+                dprintf(STDOUT_FILENO, "Hunt: %s | Total Treasures: %d\n", entry->d_name, total);
+            }
+        }
+    }
+
+    closedir(dir);
+}
+
+void list_treasure(const char* hunt) {
+    dprintf(STDOUT_FILENO, "(MONITOR) Lista treasure-uri pentru hunt-ul '%s' (simulat)\n", hunt);
+    char cale_treasure[256];
+    sprintf(cale_treasure, "%s/%s", hunt_id, TREASURE);
+    printf("deschidem %s\n", cale_treasure);
+
+    int fd = open(cale_treasure, O_RDONLY);
+    if (fd == -1) {
+        perror("open treasure file");
+        return;
+    }
+
+    struct stat file_stat;
+    if (fstat(fd, &file_stat) == -1) {
+        perror("fstat");
+        close(fd);
+        return;
+    }
+
+    printf("Hunt ID: %s\n", hunt);
+    printf("File Size: %ld bytes\n", file_stat.st_size);
+    printf("Last Modified: %s", ctime(&file_stat.st_mtime));
+
+    Treasure t;
+    int treasure_count = 0;
+
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {
+        treasure_count++;
+        printf("\nTreasure ID: %d\n", t.treasure_id);
+        printf("Username: %s\n", t.username);
+        printf("GPS Coordinates: (%f, %f)\n", t.lati, t.longi);
+        printf("Clue: %s\n", t.clue);
+        printf("Value: %d\n", t.value);
+    }
+
+    if (treasure_count == 0) {
+        printf("\nNo treasures found in this hunt.\n");
+    }
+
+    close(fd);
+}
+
+
+void view_treasure(const char* hunt_id, int treasure_id) {
+    dprintf(STDOUT_FILENO, "(MONITOR) Vizualizare treasure %d din hunt '%s' (simulat)\n", treasure_id, hunt);
+    char cale_treasure[256];
+    sprintf(cale_treasure, "%s/%s", hunt_id, TREASURE);
+
+    int fd = open(cale_treasure, O_RDONLY);
+    if (fd == -1) {
+        perror("open treasure file");
+        return;
+    }
+
+    Treasure t;
+    int found = 0;
+    while (read(fd, &t, sizeof(Treasure)) == sizeof(Treasure)) {
+        if (t.treasure_id == treasure_id) {
+            printf("\nTreasure ID: %d\n", t.treasure_id);
+            printf("Username: %s\n", t.username);
+            printf("GPS Coordinates: (%f, %f)\n", t.lati, t.longi);
+            printf("Clue: %s\n", t.clue);
+            printf("Value: %d\n", t.value);
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        printf("Comoara cu treasure id %d nu s-a gasit.\n", treasure_id);
+    }
+
+    close(fd);
+}
+
+
+void calculate_score(const char* hunt) {
+    dprintf(STDOUT_FILENO, "(MONITOR) Calculam scorul pentru hunt '%s' (simulat)\n", hunt);
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        dprintf(fd_pipe_out, "[monitor] eroare la pipe\n");
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        execl("./score_calculator", "score_calculator", hunt_id, (char*)NULL);
+        perror("[monitor] exec score_calculator");
+        exit(1);
+    } else if (pid > 0) {
+        close(pipefd[1]);
+        char buffer[256];
+        ssize_t n;
+        while ((n = read(pipefd[0], buffer, sizeof(buffer) - 1)) > 0) {
+            buffer[n] = '\0';
+            dprintf(fd_pipe_out, "%s", buffer);
+        }
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+    } else {
+        dprintf(fd_pipe_out, "[monitor] eroare la fork pentru score_calculator\n");
+    }
+}
+
+void process_command(char *line) {
+    if (!monitor_running) {
+        dprintf(STDOUT_FILENO, "Monitorul este oprit, ignora comanda\n");
+        return;
+    }
+
+    char *token = strtok(line, " \n");
+    if (!token) return;
+
+    if (strcmp(token, "list_hunts") == 0) {
+        list_hunts();
+    } else if (strcmp(token, "list_treasure") == 0) {
+        token = strtok(NULL, " \n");
+        if (token) {
+            strcpy(g_hunt_name, token);
+            list_treasure(g_hunt_name);
+        } else {
+            dprintf(STDOUT_FILENO, "Comanda list_treasure necesita un parametru\n");
+        }
+    } else if (strcmp(token, "view_treasure") == 0) {
+        token = strtok(NULL, " \n");
+        if (token) strcpy(g_hunt_name, token);
+        else {
+            dprintf(STDOUT_FILENO, "Comanda view_treasure necesita 2 parametri\n");
+            return;
+        }
+        char *treasure_id_str = strtok(NULL, " \n");
+        if (treasure_id_str) g_treasure_id = atoi(treasure_id_str);
+        else {
+            dprintf(STDOUT_FILENO, "Comanda view_treasure necesita 2 parametri\n");
+            return;
+        }
+        view_treasure(g_hunt_name, g_treasure_id);
+    } else if (strcmp(token, "calculate_score") == 0) {
+        token = strtok(NULL, " \n");
+        if (token) {
+            strcpy(g_hunt_name, token);
+            calculate_score(g_hunt_name);
+        } else {
+            dprintf(STDOUT_FILENO, "Comanda calculate_score necesita un parametru\n");
+        }
+    } else if (strcmp(token, "start_monitor") == 0) {
+        if (!monitor_running) {
+            monitor_running = 1;
+            dprintf(STDOUT_FILENO, "Monitorul a fost pornit (start_monitor)\n");
+        } else {
+            dprintf(STDOUT_FILENO, "Monitorul era deja pornit\n");
+        }
+    } else if (strcmp(token, "stop_monitor") == 0) {
+        dprintf(STDOUT_FILENO, "Monitorul se opreste.\n");
+        monitor_running = 0;
+        exit(0);
+    } else {
+        dprintf(STDOUT_FILENO, "Comanda necunoscuta: %s\n", token);
+    }
+}
+
+int main() {
+    dprintf(STDOUT_FILENO, "[monitor] Pornit si astept comenzi...\n");
+
+    char line[256];
+    while (1) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            break;  // EOF
+        }
+        process_command(line);
+    }
+
+    dprintf(STDOUT_FILENO, "[monitor] stdin s-a inchis, monitorul se opreste\n");
+    return 0;
+}
 
